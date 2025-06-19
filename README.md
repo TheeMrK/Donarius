@@ -19,6 +19,7 @@
 - 🔔 Winner is DM'd and publicly announced
 - 📜 Actions logged to a server log channel
 - 📁 Configurable with `.env` and `config.py`
+- Checks to make sure users who lose roles have their reactions removed
 
 ---
 
