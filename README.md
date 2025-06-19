@@ -51,12 +51,11 @@ DISCORD_TOKEN=your_discord_bot_token_here
 PREFIX = "!"
 DEFAULT_EMOJI = "🎉"
 
-EVENTS_CHANNEL_ID = 1379237723185086544      # #events-giveaways
-LOGS_CHANNEL_ID = 1379243941953540176        # #server-logs
+EVENTS_CHANNEL_ID = 
+LOGS_CHANNEL_ID =
 
 ALLOWED_ROLE_IDS = [
-    1379230385917005915,  # Admin role
-    1379221955776872538   # Owner role
+    
 ]
 ```
 
