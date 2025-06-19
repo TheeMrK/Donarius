@@ -28,8 +28,8 @@
 ### 1. Clone the Bot Repository
 
 ```bash
-git clone https://github.com/yourusername/giveaway-bot.git
-cd giveaway-bot
+git clone https://github.com/TheeMrK/Donarius.git
+cd Donarius
 ```
 
 ### 2. Install Dependencies
