@@ -63,7 +63,7 @@ ALLOWED_ROLE_IDS = [
 ### 5. Run the Bot
 
 ```bash
-python bot.py
+python donarius.py
 ```
 
 ---
