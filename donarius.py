@@ -1,57 +1,43 @@
 import os
 from dotenv import load_dotenv
 import discord
-from discord.ext import commands, tasks
+from discord.ext import tasks
 import random
 from datetime import datetime, timezone
-from config import PREFIX, DEFAULT_EMOJI, EVENTS_CHANNEL_ID, LOGS_CHANNEL_ID, ALLOWED_ROLE_IDS
+from config import DEFAULT_EMOJI, EVENTS_CHANNEL_ID, LOGS_CHANNEL_ID, ALLOWED_ROLE_IDS
 
-# Load the Discord bot token from the .env file
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-# Enable all intents including members and reactions (required for role updates and reaction tracking)
 intents = discord.Intents.all()
+bot = discord.Client(intents=intents)
+tree = discord.app_commands.CommandTree(bot)
 
-# Create bot instance with the specified prefix and intents
-bot = commands.Bot(command_prefix=PREFIX, intents=intents)
-
-# Giveaway configuration stored in memory
+# Giveaway config and state (in-memory)
 giveaway_config = {
     "title": "Giveaway!",
     "description": "React to enter!",
     "emoji": DEFAULT_EMOJI,
-    "eligible_roles": []  # List of role names eligible to enter
+    "eligible_roles": []
 }
-
-# ID of the giveaway message to track reactions
 current_message_id = None
+giveaway_schedule = {"start": None, "end": None}
 
-# Scheduled giveaway start and end times (datetime objects in UTC)
-giveaway_schedule = {
-    "start": None,
-    "end": None
-}
 
-# === HELPER FUNCTIONS ===
+# Helper to check user roles
+def is_authorized(member: discord.Member) -> bool:
+    return any(role.id in ALLOWED_ROLE_IDS for role in member.roles)
 
-def is_authorized(ctx):
-    """Check if the command author has a role in ALLOWED_ROLE_IDS"""
-    return any(role.id in ALLOWED_ROLE_IDS for role in ctx.author.roles)
 
-async def ephemeral(ctx, message="✅ Done."):
-    """Send a temporary ephemeral confirmation message (auto-deletes after 5 sec)"""
-    await ctx.send(message, delete_after=5)
-
-async def log_action(guild, title, description):
-    """Send a log embed to the configured logs channel"""
+# Logging helper
+async def log_action(guild: discord.Guild, title: str, description: str):
     log_channel = guild.get_channel(LOGS_CHANNEL_ID)
     if log_channel:
         embed = discord.Embed(title=title, description=description, color=discord.Color.orange())
         await log_channel.send(embed=embed)
 
+
 async def pick_winner_and_announce():
-    """Pick a random eligible winner from reactions, announce publicly and via DM, and reset giveaway"""
     global giveaway_config, current_message_id, giveaway_schedule
     channel = bot.get_channel(EVENTS_CHANNEL_ID)
     if not current_message_id or not giveaway_config:
@@ -60,7 +46,6 @@ async def pick_winner_and_announce():
     try:
         message = await channel.fetch_message(current_message_id)
     except Exception:
-        # Could not fetch the giveaway message; maybe deleted
         return
 
     emoji = giveaway_config.get("emoji", DEFAULT_EMOJI)
@@ -77,11 +62,9 @@ async def pick_winner_and_announce():
             continue
         member = guild.get_member(user.id)
         if not giveaway_config["eligible_roles"]:
-            # If no role restrictions, all users who reacted are eligible
             eligible.append(user)
         else:
             member_roles = [role.name for role in member.roles]
-            # Only users with at least one eligible role qualify
             if any(role in member_roles for role in giveaway_config["eligible_roles"]):
                 eligible.append(user)
 
@@ -90,77 +73,82 @@ async def pick_winner_and_announce():
         return
 
     winner = random.choice(eligible)
-    # Announce winner publicly in giveaway channel
     await channel.send(f"🎉 Congratulations {winner.mention}! You won the giveaway! 🎉")
 
-    # Try to DM the winner; ignore if DMs are closed
     try:
         await winner.send(f"🎉 Congratulations! You won the giveaway in **{guild.name}**! 🎉")
     except discord.Forbidden:
         await channel.send(f"⚠️ Could not DM {winner.mention}, but they won the giveaway!", delete_after=15)
 
-    # Log the winner announcement
     await log_action(guild, "Giveaway Winner Drawn", f"Winner: {winner.mention} (Scheduled or manual)")
 
-    # Reset giveaway state for next giveaway
-    giveaway_config = {
+    # Reset giveaway
+    giveaway_config.update({
         "title": "Giveaway!",
         "description": "React to enter!",
         "emoji": DEFAULT_EMOJI,
         "eligible_roles": []
-    }
+    })
     current_message_id = None
     giveaway_schedule["start"] = None
     giveaway_schedule["end"] = None
 
-# === COMMANDS ===
 
-@bot.command()
-async def set_title(ctx, *, title):
-    """Set the giveaway title."""
-    if not is_authorized(ctx):
+# Slash commands:
+
+@tree.command(name="set_title", description="Set the giveaway title")
+async def set_title(interaction: discord.Interaction, title: str):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     giveaway_config["title"] = title
-    await ephemeral(ctx)
+    await interaction.response.send_message("✅ Giveaway title updated.", ephemeral=True)
 
-@bot.command()
-async def set_description(ctx, *, description):
-    """Set the giveaway description."""
-    if not is_authorized(ctx):
+
+@tree.command(name="set_description", description="Set the giveaway description")
+async def set_description(interaction: discord.Interaction, description: str):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     giveaway_config["description"] = description
-    await ephemeral(ctx)
+    await interaction.response.send_message("✅ Giveaway description updated.", ephemeral=True)
 
-@bot.command()
-async def set_emoji(ctx, emoji):
-    """Set the emoji used for giveaway entry reactions."""
-    if not is_authorized(ctx):
+
+@tree.command(name="set_emoji", description="Set the emoji used for giveaway reactions")
+async def set_emoji(interaction: discord.Interaction, emoji: str):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     giveaway_config["emoji"] = emoji
-    await ephemeral(ctx)
+    await interaction.response.send_message("✅ Giveaway emoji updated.", ephemeral=True)
 
-@bot.command()
-async def add_role(ctx, *, role_name):
-    """Add a role name to the list of eligible roles for giveaway entry."""
-    if not is_authorized(ctx):
+
+@tree.command(name="add_role", description="Add a role eligible to enter the giveaway")
+async def add_role(interaction: discord.Interaction, role_name: str):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     if role_name not in giveaway_config["eligible_roles"]:
         giveaway_config["eligible_roles"].append(role_name)
-    await ephemeral(ctx)
+    await interaction.response.send_message(f"✅ Role '{role_name}' added to eligible roles.", ephemeral=True)
 
-@bot.command()
-async def remove_role(ctx, *, role_name):
-    """Remove a role name from the eligible roles list."""
-    if not is_authorized(ctx):
+
+@tree.command(name="remove_role", description="Remove a role from eligible roles")
+async def remove_role(interaction: discord.Interaction, role_name: str):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     if role_name in giveaway_config["eligible_roles"]:
         giveaway_config["eligible_roles"].remove(role_name)
-    await ephemeral(ctx)
+        await interaction.response.send_message(f"✅ Role '{role_name}' removed from eligible roles.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"⚠️ Role '{role_name}' not found in eligible roles.", ephemeral=True)
 
-@bot.command()
-async def preview_embed(ctx):
-    """Preview the giveaway embed with current settings."""
-    if not is_authorized(ctx):
+
+@tree.command(name="preview_embed", description="Preview the giveaway embed")
+async def preview_embed(interaction: discord.Interaction):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     roles = ", ".join(giveaway_config["eligible_roles"]) or "No role restrictions (everyone eligible)"
     embed = discord.Embed(
@@ -168,12 +156,13 @@ async def preview_embed(ctx):
         description=f"{giveaway_config['description']}\n\n**Eligible Roles:** {roles}",
         color=discord.Color.green()
     )
-    await ctx.send(embed=embed, delete_after=20)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
-@bot.command()
-async def start_giveaway(ctx):
-    """Post the giveaway embed and add reaction for entry."""
-    if not is_authorized(ctx):
+
+@tree.command(name="start_giveaway", description="Post the giveaway and open entry")
+async def start_giveaway(interaction: discord.Interaction):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     channel = bot.get_channel(EVENTS_CHANNEL_ID)
     embed = discord.Embed(
@@ -185,69 +174,73 @@ async def start_giveaway(ctx):
     await message.add_reaction(giveaway_config["emoji"])
     global current_message_id
     current_message_id = message.id
-    await ephemeral(ctx)
-    await log_action(ctx.guild, "Giveaway Posted", f"Posted in {channel.mention} by {ctx.author.mention}")
+    await interaction.response.send_message("✅ Giveaway started.", ephemeral=True)
+    await log_action(interaction.guild, "Giveaway Posted", f"Posted in {channel.mention} by {interaction.user.mention}")
 
-@bot.command()
-async def draw_winner(ctx):
-    """Manually pick a winner and announce."""
-    if not is_authorized(ctx):
+
+@tree.command(name="draw_winner", description="Pick a winner and announce")
+async def draw_winner(interaction: discord.Interaction):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     await pick_winner_and_announce()
+    await interaction.response.send_message("✅ Winner drawn.", ephemeral=True)
 
-@bot.command()
-async def cancel_giveaway(ctx):
-    """Cancel the current giveaway and reset all config."""
-    if not is_authorized(ctx):
+
+@tree.command(name="cancel_giveaway", description="Cancel the current giveaway")
+async def cancel_giveaway(interaction: discord.Interaction):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     global giveaway_config, current_message_id, giveaway_schedule
-    giveaway_config = {
+    giveaway_config.update({
         "title": "Giveaway!",
         "description": "React to enter!",
         "emoji": DEFAULT_EMOJI,
         "eligible_roles": []
-    }
+    })
     current_message_id = None
     giveaway_schedule["start"] = None
     giveaway_schedule["end"] = None
-    await ephemeral(ctx)
-    await log_action(ctx.guild, "Giveaway Cancelled", f"Cancelled by {ctx.author.mention}")
+    await interaction.response.send_message("✅ Giveaway cancelled.", ephemeral=True)
+    await log_action(interaction.guild, "Giveaway Cancelled", f"Cancelled by {interaction.user.mention}")
 
-@bot.command()
-async def set_start(ctx, date: str, time: str):
-    """Set scheduled giveaway start datetime (UTC). Format: YYYY-MM-DD HH:MM"""
-    if not is_authorized(ctx):
+
+@tree.command(name="set_start", description="Set giveaway start datetime (UTC, YYYY-MM-DD HH:MM)")
+async def set_start(interaction: discord.Interaction, datetime_str: str):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     try:
-        dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+        dt = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
         giveaway_schedule["start"] = dt
-        await ephemeral(ctx, f"✅ Start time set to {dt.isoformat()} UTC")
-        await log_action(ctx.guild, "Giveaway Start Set", f"Start time set to {dt.isoformat()} UTC")
+        await interaction.response.send_message(f"✅ Start time set to {dt.isoformat()} UTC", ephemeral=True)
+        await log_action(interaction.guild, "Giveaway Start Set", f"Start time set to {dt.isoformat()} UTC")
     except Exception:
-        await ctx.send("❌ Invalid date/time format. Use YYYY-MM-DD HH:MM", delete_after=10)
+        await interaction.response.send_message("❌ Invalid date/time format. Use YYYY-MM-DD HH:MM", ephemeral=True)
 
-@bot.command()
-async def set_end(ctx, date: str, time: str):
-    """Set scheduled giveaway end datetime (UTC). Format: YYYY-MM-DD HH:MM"""
-    if not is_authorized(ctx):
+
+@tree.command(name="set_end", description="Set giveaway end datetime (UTC, YYYY-MM-DD HH:MM)")
+async def set_end(interaction: discord.Interaction, datetime_str: str):
+    if not is_authorized(interaction.user):
+        await interaction.response.send_message("❌ You are not authorized.", ephemeral=True)
         return
     try:
-        dt = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+        dt = datetime.strptime(datetime_str, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
         giveaway_schedule["end"] = dt
-        await ephemeral(ctx, f"✅ End time set to {dt.isoformat()} UTC")
-        await log_action(ctx.guild, "Giveaway End Set", f"End time set to {dt.isoformat()} UTC")
+        await interaction.response.send_message(f"✅ End time set to {dt.isoformat()} UTC", ephemeral=True)
+        await log_action(interaction.guild, "Giveaway End Set", f"End time set to {dt.isoformat()} UTC")
     except Exception:
-        await ctx.send("❌ Invalid date/time format. Use YYYY-MM-DD HH:MM", delete_after=10)
+        await interaction.response.send_message("❌ Invalid date/time format. Use YYYY-MM-DD HH:MM", ephemeral=True)
 
-# === BACKGROUND TASK ===
+
+# Background task remains largely the same:
 @tasks.loop(seconds=30)
 async def giveaway_scheduler():
-    """Checks giveaway schedule every 30 seconds and auto-starts or auto-ends giveaways"""
     now = datetime.now(timezone.utc)
     global current_message_id
 
     if giveaway_schedule["start"] and giveaway_schedule["end"]:
-        # Auto-start giveaway if scheduled time has passed and giveaway not active
         if giveaway_config and not current_message_id:
             if now >= giveaway_schedule["start"]:
                 channel = bot.get_channel(EVENTS_CHANNEL_ID)
@@ -261,28 +254,26 @@ async def giveaway_scheduler():
                 current_message_id = message.id
                 await log_action(channel.guild, "Giveaway Started Automatically", f"Giveaway started at scheduled time {now.isoformat()}")
 
-        # Auto-end giveaway if scheduled end time reached
         if current_message_id and now >= giveaway_schedule["end"]:
             await pick_winner_and_announce()
 
-giveaway_scheduler.before_loop(lambda: bot.wait_until_ready())
+
+@giveaway_scheduler.before_loop
+async def before_scheduler():
+    await bot.wait_until_ready()
+
+
 giveaway_scheduler.start()
 
-# === EVENT: REMOVE REACTIONS IF USER LOSES REQUIRED ROLE ===
+
 @bot.event
 async def on_member_update(before, after):
-    """
-    When a member's roles update, remove their giveaway reaction if they lost an eligible role.
-    """
     global current_message_id, giveaway_config
 
-    # If no giveaway running or no role restrictions, no action needed
     if not current_message_id or not giveaway_config["eligible_roles"]:
         return
 
-    # Determine which roles the member lost (by name)
     lost_roles = set(role.name for role in before.roles) - set(role.name for role in after.roles)
-    # Check if any lost role is in eligible roles
     if not lost_roles.intersection(set(giveaway_config["eligible_roles"])):
         return
 
@@ -297,24 +288,33 @@ async def on_member_update(before, after):
 
     emoji = giveaway_config.get("emoji", DEFAULT_EMOJI)
 
-    # Find the reaction matching the giveaway emoji
     for reaction in message.reactions:
         if str(reaction.emoji) == emoji:
             users = await reaction.users().flatten()
-            # If the member has reacted, remove their reaction
             if after in users:
                 try:
                     await reaction.remove(after)
-                    # Notify user via DM about reaction removal
                     try:
                         await after.send("Your reaction was removed because you no longer have the required role(s) for the giveaway.")
                     except discord.Forbidden:
-                        # User has DMs closed or blocked the bot
                         pass
                 except discord.Forbidden:
-                    # Bot lacks Manage Messages permission or cannot remove reaction
                     pass
             break
 
-# Run the bot
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    # Sync slash commands globally or to guild for faster update
+    try:
+        # For development, sync to guild for immediate effect:
+        # guild = discord.Object(id=YOUR_GUILD_ID)
+        # await tree.sync(guild=guild)
+        await tree.sync()  # global sync
+        print("Slash commands synced.")
+    except Exception as e:
+        print(f"Failed to sync slash commands: {e}")
+
+
 bot.run(TOKEN)
