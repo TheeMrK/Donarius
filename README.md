@@ -63,3 +63,51 @@ A Discord bot to run role-restricted giveaways with scheduled start/end times an
 
 ```bash
 python donarius.py
+
+Use these commands in Discord by typing / to open the command menu:
+
+Command	Description	Parameters
+/set_title	Set the giveaway title	title (string)
+/set_description	Set the giveaway description	description (string)
+/set_emoji	Set emoji for giveaway entry	emoji (string, e.g. 🎉)
+/add_role	Add a role eligible to enter	role_name (string)
+/remove_role	Remove an eligible role	role_name (string)
+/preview_embed	Preview the giveaway embed	(no parameters)
+/start_giveaway	Start and post the giveaway	(no parameters)
+/draw_winner	Manually pick a winner	(no parameters)
+/cancel_giveaway	Cancel the current giveaway	(no parameters)
+/set_start	Schedule giveaway start (UTC)	datetime_str (string, "YYYY-MM-DD HH:MM")
+/set_end	Schedule giveaway end (UTC)	datetime_str (string, "YYYY-MM-DD HH:MM")
+
+Notes
+All scheduled times are in UTC.
+
+Only users with roles in ALLOWED_ROLE_IDS can manage giveaways.
+
+The bot automatically removes reactions from users who lose eligible roles.
+
+Make sure to sync slash commands on bot startup (this happens automatically).
+
+Troubleshooting
+If slash commands do not appear, try restarting the bot or sync commands manually.
+
+Check bot permissions: it requires Send Messages, Add Reactions, Manage Messages, and Read Message History in the giveaway channel.
+
+For date/time commands, use format YYYY-MM-DD HH:MM (24-hour, UTC).
+
+License
+MIT License
+
+vbnet
+Copy
+Edit
+
+Let me know if you want me to generate `requirements.txt` or a Dockerfile too!
+
+
+
+
+
+
+
+
